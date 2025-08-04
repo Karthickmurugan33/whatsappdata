@@ -101,7 +101,6 @@
                 const reader = new FileReader();
                 reader.onload = function (e) {
                     const lines = e.target.result.split('\n');
-
                     let groupResults = [];
 
                     lines.forEach(line => {
@@ -136,13 +135,14 @@
                         if (removedMatch) {
                             const date = formatDateToDDMMYYYY(removedMatch[1]);
                             if (checkDateInRange(convertDateForCompare(date), startDate, endDate)) {
-                                const person = extractLast10Digits(removedMatch[2].trim());
-                                groupResults.push({ Group: groupName, Date: date, Add: "", Joined: "", Left: "", Removed: person });
+                                const raw = removedMatch[2].trim();
+                                const phone = extractLast10Digits(raw);
+                                groupResults.push({ Group: groupName, Date: date, Add: "", Joined: "", Left: "", Removed: phone });
                             }
                         }
                     });
 
-                    // ✅ Add empty rows for dates with no data
+                    // Add empty rows for missing dates
                     if (startDate && endDate) {
                         const allDates = getAllDatesInRange(startDate, endDate);
                         allDates.forEach(d => {
@@ -161,7 +161,6 @@
                         if (results.length === 0) {
                             alert(`No data found between ${startDate || "Start"} and ${endDate || "End"}.`);
                         } else {
-                            // Sort by Group and Date
                             results.sort((a, b) => {
                                 if (a.Group !== b.Group) return a.Group.localeCompare(b.Group);
                                 return new Date(convertDateForCompare(a.Date)) - new Date(convertDateForCompare(b.Date));
@@ -176,7 +175,7 @@
 
         function formatDateToDDMMYYYY(dateStr) {
             const parts = dateStr.split('/');
-            return `${parts[0]}/${parts[1]}/${parts[2]}`;
+            return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
         }
 
         function convertDateForCompare(dateStr) {
@@ -198,8 +197,7 @@
 
         function extractLast10Digits(text) {
             const digits = text.replace(/\D/g, '');
-            if (digits.length >= 10) return digits.slice(-10);
-            return text; // return name if not number
+            return digits.length >= 10 ? digits.slice(-10) : text;
         }
 
         function getAllDatesInRange(start, end) {
@@ -223,3 +221,5 @@
 </body>
 
 </html>
+
+
