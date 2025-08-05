@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
-  <title>WhatsApp Group Parser</title>
+  <title>WhatsApp Group Parser (Final Fixed)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body {
@@ -64,18 +64,18 @@
 
 <body>
   <div class="container">
-    <h2>WhatsApp Group Parser</h2>
+    <h2>WhatsApp Group Parser (with Full Removal Support)</h2>
 
     <input type="file" id="fileInput" multiple />
 
     <div class="date-inputs">
       <div>
         <label>Start Date:</label>
-        <input type="date" id="startDate">
+        <input type="date" id="startDate" />
       </div>
       <div>
         <label>End Date:</label>
-        <input type="date" id="endDate">
+        <input type="date" id="endDate" />
       </div>
     </div>
 
@@ -99,61 +99,63 @@
       Array.from(files).forEach(file => {
         const groupName = file.name.replace('.txt', '');
         const reader = new FileReader();
+
         reader.onload = function (e) {
           const lines = e.target.result.split('\n');
           let groupResults = [];
 
           lines.forEach(line => {
+            const cleanLine = line.trim().replace(/^\[?(\d{1,2}\/\d{1,2}\/\d{2,4}),/, '$1,');
+
             // Added
-            const addedMatch = line.match(/(\d{2}\/\d{2}\/\d{4}),.*?added\s(.+)/i);
+            const addedMatch = cleanLine.match(/^(\d{1,2}\/\d{1,2}\/\d{2,4}),.*?added\s(.+)/i);
             if (addedMatch) {
-              const date = addedMatch[1];
+              const date = normalizeDate(addedMatch[1]);
               if (checkDateInRange(date, startDate, endDate)) {
-                const person = extractLast10Digits(addedMatch[2].trim());
-                groupResults.push({ Group: groupName, Date: date, Add: person, Joined: "", Left: "", Removed: "" });
+                const person = extractLast10Digits(addedMatch[2]);
+                groupResults.push({ Group: groupName, Date: formatDateForExcel(date), Add: person, Joined: "", Left: "", Removed: "" });
               }
             }
 
             // Joined via link
-            const inviteMatch = line.match(/(\d{2}\/\d{2}\/\d{4}),.*?(\+?\d{1,4}[\s\d]*) joined using this group's invite link/i);
-            if (inviteMatch) {
-              const date = inviteMatch[1];
+            const joinedMatch = cleanLine.match(/^(\d{1,2}\/\d{1,2}\/\d{2,4}),.*?(\+?\d[\d\s]*) joined using this group's invite link/i);
+            if (joinedMatch) {
+              const date = normalizeDate(joinedMatch[1]);
               if (checkDateInRange(date, startDate, endDate)) {
-                const phone = extractLast10Digits(inviteMatch[2]);
-                groupResults.push({ Group: groupName, Date: date, Add: "", Joined: phone, Left: "", Removed: "" });
+                const phone = extractLast10Digits(joinedMatch[2]);
+                groupResults.push({ Group: groupName, Date: formatDateForExcel(date), Add: "", Joined: phone, Left: "", Removed: "" });
               }
             }
 
             // Left
-            const leftMatch = line.match(/(\d{2}\/\d{2}\/\d{4}),.*?-\s(.+?) left/i);
+            const leftMatch = cleanLine.match(/^(\d{1,2}\/\d{1,2}\/\d{2,4}),.*?-\s(.+?) left/i);
             if (leftMatch) {
-              const date = leftMatch[1];
+              const date = normalizeDate(leftMatch[1]);
               if (checkDateInRange(date, startDate, endDate)) {
-                const person = extractLast10Digits(leftMatch[2].trim());
-                groupResults.push({ Group: groupName, Date: date, Add: "", Joined: "", Left: person, Removed: "" });
+                const person = extractLast10Digits(leftMatch[2]);
+                groupResults.push({ Group: groupName, Date: formatDateForExcel(date), Add: "", Joined: "", Left: person, Removed: "" });
               }
             }
 
-            // Removed
-            const removedMatch = line.match(/(\d{2}\/\d{2}\/\d{4}),.*?removed\s(.+?) from the group/i);
+            // ✅ Removed - supports both with and without "from the group"
+            const removedMatch = cleanLine.match(/^(\d{1,2}\/\d{1,2}\/\d{2,4}),.*?-\s(.+?) removed (.+?)(?: from the group)?$/i);
             if (removedMatch) {
-              const date = removedMatch[1];
+              const date = normalizeDate(removedMatch[1]);
               if (checkDateInRange(date, startDate, endDate)) {
-                const raw = removedMatch[2].trim();
-                const phone = extractLast10Digits(raw);
-                groupResults.push({ Group: groupName, Date: date, Add: "", Joined: "", Left: "", Removed: phone });
+                const removedPerson = extractLast10Digits(removedMatch[3]);
+                groupResults.push({ Group: groupName, Date: formatDateForExcel(date), Add: "", Joined: "", Left: "", Removed: removedPerson });
               }
             }
           });
 
-          // Fill blank dates if needed
+          // Fill empty dates
           if (startDate && endDate) {
             const allDates = getAllDatesInRange(startDate, endDate);
             allDates.forEach(d => {
-              const formatted = formatDateToDDMMYYYY(d);
-              const hasEntry = groupResults.some(r => r.Date === formatted);
-              if (!hasEntry) {
-                groupResults.push({ Group: groupName, Date: formatted, Add: "", Joined: "", Left: "", Removed: "" });
+              const excelDate = formatDateForExcel(d);
+              const exists = groupResults.some(r => r.Date === excelDate);
+              if (!exists) {
+                groupResults.push({ Group: groupName, Date: excelDate, Add: "", Joined: "", Left: "", Removed: "" });
               }
             });
           }
@@ -163,49 +165,57 @@
 
           if (filesProcessed === files.length) {
             if (!results.length) {
-              alert("No data found in the selected date range.");
-            } else {
-              results.sort((a, b) => {
-                if (a.Group !== b.Group) return a.Group.localeCompare(b.Group);
-                return new Date(a.Date.split('/').reverse().join('-')) - new Date(b.Date.split('/').reverse().join('-'));
-              });
-              exportToExcel(results);
+              alert("No data found.");
+              return;
             }
+
+            results.sort((a, b) => {
+              if (a.Group !== b.Group) return a.Group.localeCompare(b.Group);
+              return new Date(a.Date.split('/').reverse().join('-')) - new Date(b.Date.split('/').reverse().join('-'));
+            });
+
+            exportToExcel(results);
           }
         };
+
         reader.readAsText(file);
       });
     }
 
-    function extractLast10Digits(text) {
-      const digits = text.replace(/\D/g, '');
-      return digits.length >= 10 ? digits.slice(-10) : text;
+    function normalizeDate(dateStr) {
+      const parts = dateStr.split('/');
+      const dd = parts[0].padStart(2, '0');
+      const mm = parts[1].padStart(2, '0');
+      const yyyy = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+      return `${yyyy}-${mm}-${dd}`;
     }
 
-    function checkDateInRange(dateStr, start, end) {
+    function formatDateForExcel(dateStr) {
+      const parts = dateStr.split('-');
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    function extractLast10Digits(text) {
+      const digits = text.replace(/\D/g, '');
+      return digits.length >= 10 ? digits.slice(-10) : text.trim();
+    }
+
+    function checkDateInRange(date, start, end) {
       if (!start && !end) return true;
-      const d = new Date(dateStr.split('/').reverse().join('-'));
-      const s = start ? new Date(start) : null;
-      const e = end ? new Date(end) : null;
-      if (s && d < s) return false;
-      if (e && d > e) return false;
+      if (start && date < start) return false;
+      if (end && date > end) return false;
       return true;
     }
 
     function getAllDatesInRange(start, end) {
-      const dateArray = [];
+      const dates = [];
       let current = new Date(start);
       const last = new Date(end);
       while (current <= last) {
-        dateArray.push(current.toISOString().split('T')[0]);
+        dates.push(current.toISOString().split('T')[0]);
         current.setDate(current.getDate() + 1);
       }
-      return dateArray;
-    }
-
-    function formatDateToDDMMYYYY(dateStr) {
-      const parts = dateStr.split('-');
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return dates;
     }
 
     function exportToExcel(data) {
@@ -220,7 +230,7 @@
 </html>
 
 
-</html>
+
 
 
 
